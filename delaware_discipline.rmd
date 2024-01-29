@@ -12,7 +12,7 @@ library(dplyr)
 library(ggthemes)
 
 # Remove comment from the below read_csv line as necessary.
-delaware_discipline <<- read_csv("/Users/joellevtov/Library/CloudStorage/GoogleDrive-levtov@terpmail.umd.edu/My Drive/Journalism/delaware_discipline/delaware_student_discipline_raw.csv")
+delaware_discipline <- read_csv("/Users/joellevtov/Library/CloudStorage/GoogleDrive-levtov@terpmail.umd.edu/My Drive/Journalism/delawarediscipline/delaware_student_discipline_raw.csv")
 
 delaware_discipline <- delaware_discipline |> 
     clean_names()
@@ -68,7 +68,7 @@ Native Hawaiian/Pacific Islander x               x                  x           
 
 <num_enrolled> is the number of students in a grade
 <num_disciplined> is the number of students that have faced discipline in each category
-<num_incidents> is the number of incidents (i.e. NOT the number of students)
+<num_of_incidents> is the number of incidents (i.e. NOT the number of students)
 <avg_incidents> is the mean number of incidents for each racial category
 <per_capita_disciplines> is the average number of students disciplined, i.e. num_students_disciplined/enrollement
 ```{r}
@@ -100,6 +100,7 @@ Since there are rows left over, i.e. there are students in the redacted rows for
 And another calculation we need to do - when we calculate the enrollement, we need to not double count, adding the same number of enrolled students over and over again. (It technically wouldn't make a difference for comparing discipline rates across races, since we're doing the same thing for all of them, i.e. whether or not we double count <enrollement> the correct race will be on top, but it still is something we should avoid to have accurate figures.)
 ```{r}
 unique_values <- statewide_only_discipline |> 
+    group_by(sub_group, enrollment) |> 
     summarize(sub_group, enrollment)
 print(n=100, unique_values)
 ```
