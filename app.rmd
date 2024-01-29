@@ -1,0 +1,136 @@
+
+
+*** BELOW HERE, EXPERIMENTATION ***
+```{r}
+if(interactive()) {
+    demographics_detailed_function <- function() {
+    x <- readline("What is x")
+
+    x <- as.numeric(x)
+
+    return(x+2)
+}   
+}
+
+
+```
+
+AN EXAMPLE
+```{r}
+if (interactive()) {
+library(shiny)
+# basic example
+shinyApp(
+  ui = fluidPage(
+    selectInput("variable", "Variable:",
+                c("Cylinders" = "cyl",
+                  "Transmission" = "am",
+                  "Gears" = "gear")),
+    tableOutput("data")
+  ),
+  server = function(input, output) {
+    output$data <- renderTable({
+      mtcars[, c("mpg", input$variable), drop = FALSE]
+    }, rownames = TRUE)
+  }
+)
+
+# demoing group support in the `choices` arg
+shinyApp(
+  ui = fluidPage(
+    selectInput("state", "Choose a state:",
+      list(`East Coast` = list("NY", "NJ", "CT"),
+           `West Coast` = list("WA", "OR", "CA"),
+           `Midwest` = list("MN", "WI", "IA"))
+    ),
+    textOutput("result")
+  ),
+  server = function(input, output) {
+    output$result <- renderText({
+      paste("You chose", input$state)
+    })
+  }
+)
+}
+```
+
+The below is still under development. Ideally, I'd create a graph to display the results so one can query the data.
+```{r}
+shinyApp(
+  ui = fluidPage(
+    selectInput("race",
+    "race",
+    c("Hispanic/Latino" = "1", 
+    "Native American" = "2", 
+    "African American" = "3", 
+    "White" = "4", 
+    "Asian American" = "5", 
+    "Multi-Racial" = "6", 
+    "Native Hawaiian/Pacific Islander" = "7 | hawaiian | Hawaiian"),
+    multiple = FALSE,
+    selectize = FALSE,),
+    tableOutput("data")
+  )
+)
+
+race_selection <- selectInput(
+    
+)
+
+race_selection
+
+if (race_selection == "Hispanic/Latino") {
+    hisp <- statewide_only_discipline |> 
+        filter(str_detect(race, race_categories[1,1])) |> 
+        summarize(
+            count=sum(na.omit(students))) |> 
+        mutate(
+            race = race_categories[1,1])
+}
+
+else if (race_selection == ) {
+   selected
+}
+
+```
+
+checking if the variable we're inserting for is the right one
+```{r}
+race_correct <- function(pop_hisp) {
+#  Checks what variable that starts with "name_" has been used in the last created variable that starts with "pop_".
+
+#  Args:
+#    df: A data frame.
+
+#  Returns:
+#    A string indicating the name variable used in the last pop variable, or NULL if no pop variable has been created yet.
+
+
+ # Get all variables that start with "name_" and "pop_"
+ name_vars <- grep("^name_", names(demographics), value = TRUE)
+ pop_vars <- grep("^pop_", names(df), value = TRUE)
+
+ # Sort the pop variables in reverse chronological order (newest first)
+ pop_vars <- rev(pop_vars)
+
+ # If there are no pop variables, return NULL
+ if (length(pop_vars) == 0) {
+   return(NULL)
+ }
+
+ # Get the last created pop variable
+ last_pop_var <- pop_vars[1]
+
+ # Find the name variable used in the last pop variable
+ for (name_var in name_vars) {
+   if (name_var %in% attr(df[[last_pop_var]], "names")) {
+     return(name_var)
+   }
+ }
+
+ # If no name variable is found, return NULL
+ return(NULL)
+}
+
+race_correct()
+```
