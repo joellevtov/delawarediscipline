@@ -13,17 +13,22 @@ library(ggthemes)
 
 # Remove comment from the below read_csv line as necessary.
 delaware_discipline <- read_csv("/Users/joellevtov/Library/CloudStorage/GoogleDrive-levtov@terpmail.umd.edu/My Drive/Journalism/delawarediscipline/delaware_student_discipline_raw.csv")
+delaware_pop <- read_csv("/Users/joellevtov/Library/CloudStorage/GoogleDrive-levtov@terpmail.umd.edu/My Drive/Journalism/delawarediscipline/Student_Enrollment_20240209.csv")
 
 delaware_discipline <- delaware_discipline |> 
     clean_names()
-
-delaware_discipline[delaware_discipline == "Out-of-School Suspension without CDAP Placement"] <- "Out-of-School Suspension, No CDAP Placement"
+delaware_pop <- delaware_pop |> 
+    clean_names()
+delaware_pop$grade <- str_replace(delaware_pop$grade, "Twelfth", "12th Grade")
+delaware_pop$sub_group <- str_replace(delaware_pop$sub_group, "Asian", "Asian American")
+elaware_pop |> 
+    select(grade)
 
 # Double check that everything worked as intended:
 check <- as.data.frame(delaware_discipline) |> 
     filter(category == "Out-of-School Suspension without CDAP Placement")
 head(check)
-# If this returns 0 rows, everything is working perfectly.
+# If this returns 0 rows, everything is working perfectly. The raw data has two different phrases that mean the same thing - "Out-of-School Suspension, No CDAP Placement" and "Out-of-School Suspension without CDAP Placement". For clarity, I replaced the latter with the former.
 ```
 
 Let's create a dataframe that addresses state-wide discipline policies.
@@ -71,6 +76,7 @@ Native Hawaiian/Pacific Islander x               x                  x           
 <num_of_incidents> is the number of incidents (i.e. NOT the number of students)
 <avg_incidents> is the mean number of incidents for each racial category
 <per_capita_disciplines> is the average number of students disciplined, i.e. num_students_disciplined/enrollement
+
 ```{r}
 demographics <- data.frame(
     race = character(),
@@ -84,51 +90,86 @@ demographics$race <- c(name_hisp, name_native_am, name_black, name_white, name_a
 print(demographics)
 ```
 
-Now we can start calculating. Let's first check whether we have to include ONLY the rows where there are reported numbers for an accurate per-capita count.
+Now we can start calculating. First, the population
 ```{r}
-check_rows <- statewide_only_discipline |> 
-    filter(race==name_hisp) |> 
-    filter(rowstatus=="REDACTED") |> 
-    filter((!is.na(enrollment)) | !(enrollment==0))
-as.data.frame(check_rows)
-check_rows |> 
-    select(enrollment)
-print(check_rows)
-```
-
-Since there are rows left over, i.e. there are students in the redacted rows for which Delaware has provided the number of students enrolled, we must factor those out later when doing a per-capita calculation. 
-Now, let's total the number of students of each race. When we calculate the enrollement, we need to not double count, adding the same number of enrolled students over and over again. (It technically wouldn't make a difference for comparing discipline rates across races, since we're doing the same thing for all of them, i.e. whether or not we double count <enrollement> the correct race will be on top, but it still is something we should avoid to have accurate figures.)
-```{r}
-pops <- statewide_only_discipline |> 
-    filter(gender=="All Students") |> 
-    filter(grade=="All Students") |> 
-    filter(race != "All Students") |> 
-    filter(category=="In-School Suspension") |> 
-    select(school_year, race, enrollment)
+# This makes a table showing the number of students of x race enrolled each year.
+pops <- delaware_pop |> 
+    filter(district=="State of Delaware") |> 
+    filter(grade !=(regex("Birth to 2 Years", ignore_case=TRUE))) |> 
+    select(school_year, grade, race, students, special_demo, sub_group, gender)
 view(pops)
 
-pop_hisp <- pops |> 
-    filter(race==name_hisp) |>     
-    summarize(total_enrollment=sum(enrollment)) 
-pop_native_am <- pops |> 
-    filter(race==name_native_am) |>     
-    summarize(total_enrollment=sum(enrollment)) 
+pop_hisp <- pops|> 
+    filter(race==name_hisp) |> 
+    filter(sub_group==name_hisp) |> 
+    summarize(sum=sum(students))
+pop_native_am <- pops|> 
+    filter(race==name_native_am) |> 
+    filter(sub_group==name_native_am) |> 
+    summarize(sum=sum(students))
 pop_black <- pops |> 
     filter(race==name_black) |> 
-    summarize(total_enrollment=sum(enrollment)) 
+    filter(sub_group==name_black) |> 
+    summarize(sum=sum(students))
 pop_white <- pops |> 
     filter(race==name_white) |> 
-    summarize(total_enrollment=sum(enrollment)) 
+    filter(sub_group==name_white) |> 
+    summarize(sum=sum(students)) 
 pop_asian_am <- pops |> 
     filter(race==name_asian_am) |> 
-    summarize(total_enrollment=sum(enrollment))
+    filter(sub_group==name_asian_am) |> 
+    summarize(sum=sum(students))
 pop_multi_racial <- pops |> 
     filter(race==name_multi_racial) |> 
-    summarize(total_enrollment=sum(enrollment)) 
-pop_hawaiian_pi <- pops |> 
+    filter(sub_group==name_multi_racial) |> 
+    summarize(sum=sum(students)) 
+pop_hawaiian_pi <- pops|> 
     filter(race==name_hawaiian_pi) |> 
-    summarize(total_enrollment=sum(enrollment)) 
-paste(pop_hisp, " ", pop_native_am," ",  pop_black," ",  pop_white," ",  pop_asian_am," ",  pop_multi_racial," ",  pop_hawaiian_pi)
+    filter(sub_group==name_hawaiian_pi) |> 
+    summarize(sum=sum(students)) 
+pop_stats <- as.data.frame(c(pop_hisp, pop_native_am, pop_black, pop_white, pop_asian_am, pop_multi_racial, pop_hawaiian_pi))
+colnames(pop_stats) <- c(name_hisp, name_native_am, name_black, name_white, name_asian_am, name_multi_racial, name_hawaiian_pi)
+view(pop_stats)
+
+pops_per_grade <- pops |> 
+    filter(race=="All Students") |> 
+    filter(gender=="All Students") |> 
+    filter(special_demo=="All Students") |> 
+    select(school_year, grade, students)
+view(pops_per_grade)
+
+pops_per_grade_py <- statewide_only_discipline |> 
+    filter(race=="All Students") |> 
+    filter(category=="In-School Suspension") |> 
+    filter(gender=="All Students") |> 
+    filter(special_demo=="All Students") |> 
+    filter(grade!="All Students") |> 
+    select(school_year, grade, enrollment) |> 
+    group_by(grade) |> 
+    summarize(sum=sum(enrollment))
+view(pops_per_grade)
+
+pops_per_grade_race <- statewide_only_discipline |> 
+    filter(race!="All Students") |> 
+    filter(category=="In-School Suspension") |> 
+    filter(gender=="All Students") |> 
+    filter(special_demo=="All Students") |> 
+    filter(grade!="All Students") |> 
+    select(school_year, grade, enrollment) |> 
+    group_by(grade) |> 
+    summarize(sum=sum(enrollment))
+view(pops_per_grade_race)
+
+
+# before we do this let's double check something, whether male and female equals the number of all students
+experiment <- statewide_only_discipline |> 
+    filter(race==name_black &
+    school_year==2015 &
+    str_detect(grade, "1st") &
+    gender != "All Students") |> 
+    group_by(gender) |> 
+    summarize(sum(enrollment=sum(na.omit(enrollment))))
+
 ```
 
 Let's calculate the enrollment in each grade. This is a good reference point for later on. 
@@ -139,14 +180,12 @@ pop_hisp <- statewide_only_discipline |>
 # this is important for when we want to calculate PER GRADE
 filtered_df <- statewide_only_discipline %>%
   filter(str_detect(sub_group, regex("\\d{1,2}(?:st|nd|rd|th) grade$", ignore_case = TRUE))) |> 
-  
-  
-pop_hisp |> 
+
+pop_hisp_10th |> 
     filter(sub_group == "10th Grade") |> 
-    select(sub_group)
-    group_by(category, enrollment) |> 
-    summarize(enrollment) |>  #this summarize should get rid of duplicates but given the results above when I used
+    filter(race==name_hisp) |> 
     summarize(enrollment=sum(na.omit(enrollment))) 
+
 pop_native_am <- statewide_only_discipline |> 
     filter(str_detect(race, name_native_am)) |> 
     summarize(enrollment=sum(na.omit(enrollment))) 
