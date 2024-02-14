@@ -12,17 +12,15 @@ library(dplyr)
 library(ggthemes)
 
 # Remove comment from the below read_csv line as necessary.
-delaware_discipline <- read_csv("/Users/joellevtov/Library/CloudStorage/GoogleDrive-levtov@terpmail.umd.edu/My Drive/Journalism/delawarediscipline/delaware_student_discipline_raw.csv")
-delaware_pop <- read_csv("/Users/joellevtov/Library/CloudStorage/GoogleDrive-levtov@terpmail.umd.edu/My Drive/Journalism/delawarediscipline/Student_Enrollment_20240209.csv")
+delaware_discipline <- read_csv("/Users/joellevtov/Library/CloudStorage/GoogleDrive-levtov@terpmail.umd.edu/My Drive/Journalism/delawarediscipline/delaware_student_discipline_raw.csv") |> 
+    clean_names() |> 
+    select(!geography) #the geography column reads either "All Students" or, for redacted rows, "NA" - so this will ignore the column
+delaware_discipline$sub_group <- str_replace(delaware_discipline$sub_group, "Asian", "Asian Amerian") 
 
-delaware_discipline <- delaware_discipline |> 
-    clean_names()
-delaware_pop <- delaware_pop |> 
+delaware_pop <- read_csv("/Users/joellevtov/Library/CloudStorage/GoogleDrive-levtov@terpmail.umd.edu/My Drive/Journalism/delawarediscipline/Student_Enrollment_20240209.csv") |> 
     clean_names()
 delaware_pop$grade <- str_replace(delaware_pop$grade, "Twelfth", "12th Grade")
 delaware_pop$sub_group <- str_replace(delaware_pop$sub_group, "Asian", "Asian American")
-elaware_pop |> 
-    select(grade)
 
 # Double check that everything worked as intended:
 check <- as.data.frame(delaware_discipline) |> 
@@ -50,171 +48,135 @@ name_white <- race_categories[4,1]
 name_asian_am <- race_categories[5,1]
 name_multi_racial <- race_categories[6,1]
 name_hawaiian_pi <- race_categories[7,1]
-as.character(race_categories)
 ```
 
-We're going to create a table to make everything easier to read and compare. First let's understand what each column means:
-<grade> shows what grade the students are in.
-<category> shows what type of discipline Delaware is providing data for - in-school discipline, out-of-school discipline, expulsion, etc.
-<rowstatus> shows whether or not the results have been redacted - Delaware redacts results when there are only a handful of students in a class/subcategory, so few that it's possibly to personally identify them. Delaware can't do that because of FERPA.
-<students> shows the number of students that fall into a category - e.g. the number of male Hispanic students in grade 10.
-<pct_enrollment> shows what percent of the entire grade the subcategory ('students') makes up
-<incidents> shows the number of times a certain thing happened, e.g. the number of times students were expelled
-<avgduration> documents the amount of time students are disciplined for
+Let's break down the <delaware_discipline> dataframe.
+<school_year> shows what school year we are addressing
+<district_code> is a column we will ignore, but it shows the number code of each district. The one we want is 0, the state of Delaware.
+<district> shows in words the name of each district.
+<school_code> shows the number code of each school.
+<organization> shows the school name
+<race> shows what race the statistics address
+<special_demo> is a more clear version of the <sub_group> column. It shows what subgroup the statistics contained in the row are for
+<sub_group> shows the above in a more complicated form -- i.e. instead of reading "ESL students", it might read "Hispanic/Latino/1st Grade/Out-of-School Suspension with CDAP/ESL students." This would be helpful, but it doesn't list all the statuses, e.g. what district one is looking at
+<category> displays what type of discipline was applied - in-school discipline, out-of-school discipline, expulsion, etc.
+<rowstatus> shows whether or not a row has been ommitted out of privacy concerns - if the pool of students is small enough, it would be possible to identify which students were disciplined, in theory
+<students> shows the number of STUDENTS who were disciplined with <category>
+<enrollment> shows the numer of students who fit into a certain <sub_group>
+<pct_enrollment> shows what percent of the student body the studeents in <sub_group> make up
+<incidents> shows the number of times <status> was applied - e.g the number of times a student got in-school suspension, NOT the number of students that got in-school suspension
+<avg_duration> shows how many days students in <sub_group> were suspended for on average
 
-race                             num_enrolled    num_disciplined    num_incidents   avg_incidents   per_capita_disciplines
-Hispanic/Latino                  x               x                  x               x               x
-Native American                  x               x                  x               x               x
-African American                 x               x                  x               x               x
-White                            x               x                  x               x               x
-Asian American                   x               x                  x               x               x
-Multi-Racial                     x               x                  x               x               x
-Native Hawaiian/Pacific Islander x               x                  x               x               x
+The delaware_discipline dataset is very helpful, but is missing one key calculation -- on average, the number of students and incidents across all 8 years. So we'll create a table to display that and other tables along the way. 
+race                             num_enrolled    num_disciplined    num_incidents   per_capita_disciplines length
+Hispanic/Latino                  x               x                  x               x                       x
+Native American                  x               x                  x               x                       x
+African American                 x               x                  x               x                       x
+White                            x               x                  x               x                       x
+Asian American                   x               x                  x               x                       x
+Multi-Racial                     x               x                  x               x                       x
+Native Hawaiian/Pacific Islander x               x                  x               x                       x
 
-<num_enrolled> is the number of students in a grade
-<num_disciplined> is the number of students that have faced discipline in each category
-<num_of_incidents> is the number of incidents (i.e. NOT the number of students)
-<avg_incidents> is the mean number of incidents for each racial category
+<num_enrolled> is the average number of students in a grade across all eight years
+<num_disciplined> is the average number of students that have faced discipline in each category
+<num_of_incidents> is the average number of incidents (i.e. NOT the number of students)
 <per_capita_disciplines> is the average number of students disciplined, i.e. num_students_disciplined/enrollement
+<length> is the average length of a discipline measure in days
 
 ```{r}
-demographics <- data.frame(
-    race = character(),
+# Declaring a new data frame and giving it the column names
+demographics <- data.frame( 
     num_enrolled = numeric(),
     num_disciplined = numeric(), 
-    num_of_incidents = numeric(),
-    avg_incidents = numeric())
-# Add empty row containing only NA values
+    num_incidents = numeric(),
+    per_capita_disciplines = numeric(),
+    length = numeric())
+# Adding empty row containing only NA values
 demographics[nrow(demographics) + 7, ] <- NA  
-demographics$race <- c(name_hisp, name_native_am, name_black, name_white, name_asian_am, name_multi_racial, name_hawaiian_pi)
+# Defining the row names
+rownames(demographics) <- c(name_hisp, name_native_am, name_black, name_white, name_asian_am, name_multi_racial, name_hawaiian_pi)
 print(demographics)
 ```
 
-Now we can start calculating. First, the population
+Now we can start calculating. First, let's calculate some statistics for later calculations.
 ```{r}
 # This makes a table showing the number of students of x race enrolled each year.
-pops <- delaware_pop |> 
-    filter(district=="State of Delaware") |> 
-    filter(grade !=(regex("Birth to 2 Years", ignore_case=TRUE))) |> 
-    select(school_year, grade, race, students, special_demo, sub_group, gender)
-view(pops)
+# filter_race <- function(.data, race_name) {
+#   filtered_race_data <- .data |>
+#     filter(race == race_name, sub_group == race_name) |>
+#     filter(!str_detect(grade, regex("Birth to 2 Years", ignore_case = TRUE))) |> 
+#     summarize(sum = median(students))
+#   return(filtered_race_data)
+# }
+# name_hisp <- race_name
 
-pop_hisp <- pops|> 
-    filter(race==name_hisp) |> 
-    filter(sub_group==name_hisp) |> 
-    summarize(sum=sum(students))
-pop_native_am <- pops|> 
-    filter(race==name_native_am) |> 
-    filter(sub_group==name_native_am) |> 
-    summarize(sum=sum(students))
-pop_black <- pops |> 
-    filter(race==name_black) |> 
-    filter(sub_group==name_black) |> 
-    summarize(sum=sum(students))
-pop_white <- pops |> 
-    filter(race==name_white) |> 
-    filter(sub_group==name_white) |> 
-    summarize(sum=sum(students)) 
-pop_asian_am <- pops |> 
-    filter(race==name_asian_am) |> 
-    filter(sub_group==name_asian_am) |> 
-    summarize(sum=sum(students))
-pop_multi_racial <- pops |> 
-    filter(race==name_multi_racial) |> 
-    filter(sub_group==name_multi_racial) |> 
-    summarize(sum=sum(students)) 
-pop_hawaiian_pi <- pops|> 
-    filter(race==name_hawaiian_pi) |> 
-    filter(sub_group==name_hawaiian_pi) |> 
-    summarize(sum=sum(students)) 
-pop_stats <- as.data.frame(c(pop_hisp, pop_native_am, pop_black, pop_white, pop_asian_am, pop_multi_racial, pop_hawaiian_pi))
-colnames(pop_stats) <- c(name_hisp, name_native_am, name_black, name_white, name_asian_am, name_multi_racial, name_hawaiian_pi)
-view(pop_stats)
+# delaware_pop|> 
+#     filter(race==name_black) |> 
+#     filter(sub_group==name_black) |> 
+#     filter(is.na(school_year))
 
-pops_per_grade <- pops |> 
-    filter(race=="All Students") |> 
-    filter(gender=="All Students") |> 
-    filter(special_demo=="All Students") |> 
-    select(school_year, grade, students)
-view(pops_per_grade)
+# delaware_pop |> 
+#     filter(race)
 
-pops_per_grade_py <- statewide_only_discipline |> 
-    filter(race=="All Students") |> 
-    filter(category=="In-School Suspension") |> 
-    filter(gender=="All Students") |> 
-    filter(special_demo=="All Students") |> 
-    filter(grade!="All Students") |> 
-    select(school_year, grade, enrollment) |> 
-    group_by(grade) |> 
-    summarize(sum=sum(enrollment))
-view(pops_per_grade)
+# pop_native_am <- pops|> 
+#     filter(race==name_native_am) |> 
+#     ignore_toddlers() |> 
+#     filter(sub_group==name_native_am) |> 
+#     summarize(sum=median(students))
+# pop_black <- pops |> 
+#     filter(race==name_black) |> 
+#     ignore_toddlers() |> 
+#     filter(sub_group==name_black) |> 
+#     summarize(sum=median(students))
+# pop_white <- pops |> 
+#     filter(race==name_white) |> 
+#     ignore_toddlers() |> 
+#     filter(sub_group==name_white) |> 
+#     summarize(sum=median(students)) 
+# pop_asian_am <- pops |> 
+#     filter(race==name_asian_am) |> 
+#     ignore_toddlers() |> 
+#     filter(sub_group==name_asian_am) |> 
+#     summarize(sum=median(students))
+# pop_multi_racial <- pops |> 
+#     filter(race==name_multi_racial) |> 
+#     ignore_toddlers() |> 
+#     filter(sub_group==name_multi_racial) |> 
+#     summarize(sum=median(students)) 
+# pop_hawaiian_pi <- pops|> 
+#     filter(race==name_hawaiian_pi) |> 
+#     ignore_toddlers() |> 
+#     filter(sub_group==name_hawaiian_pi) |> 
+#     summarize(sum=median(students)) 
+# demographics$num_enrolled <- c(pop_hisp, pop_native_am, pop_black, pop_white, pop_asian_am, pop_multi_racial, pop_hawaiian_pi)
+# view(demographics)
 
-pops_per_grade_race <- statewide_only_discipline |> 
-    filter(race!="All Students") |> 
-    filter(category=="In-School Suspension") |> 
-    filter(gender=="All Students") |> 
-    filter(special_demo=="All Students") |> 
-    filter(grade!="All Students") |> 
-    select(school_year, grade, enrollment) |> 
-    group_by(grade) |> 
-    summarize(sum=sum(enrollment))
-view(pops_per_grade_race)
+# How many students of x race there are overall. Taking the median here so that we don't overcount the number of students, which summing would do. (Although, if we calculated the discipline numbers the same way, it shouldn't matter for the proportion.) Using the median because it won't be swayed by outliers, such as surges in enrollment. These are important stories, but not for these purposes.
+library(stringr)
+library(tidyverse)
 
+filtered_race_data <- delaware_pop |>
+    ungroup() |> 
+    group_by(race, grade, gender, district_code, sub_group)  |> 
+    summarize(students = median(na.omit(students)))
+filtered_race_data$school_year <- NA
+view(filtered_race_data)
+redacted <- filtered_race_data |> 
+    filter(is.na(students))
+# This works well, we just have to keep in mind that Delaware has redacted several rows for small schools, such as the Positive Outcome Charter School - likely for FERPA reasons.
 
-# before we do this let's double check something, whether male and female equals the number of all students
-experiment <- statewide_only_discipline |> 
-    filter(race==name_black &
-    school_year==2015 &
-    str_detect(grade, "1st") &
-    gender != "All Students") |> 
-    group_by(gender) |> 
-    summarize(sum(enrollment=sum(na.omit(enrollment))))
-
+delaware_pop_copy <- delaware_pop |> 
+    full_join(filtered_race_data, join_by(grade, sub_group, students, race, district_code, school_year))
+# Perfect. Now we have all the statistics in one dataframe. If we want to know the average number of students in a certain category, e.g. Black homeless students, we set the year equal to 'NA'
 ```
 
-Let's calculate the enrollment in each grade. This is a good reference point for later on. 
-```{r}
-pop_hisp <- statewide_only_discipline |> 
-    filter(race==name_hisp)
-
-# this is important for when we want to calculate PER GRADE
-filtered_df <- statewide_only_discipline %>%
-  filter(str_detect(sub_group, regex("\\d{1,2}(?:st|nd|rd|th) grade$", ignore_case = TRUE))) |> 
-
-pop_hisp_10th |> 
-    filter(sub_group == "10th Grade") |> 
-    filter(race==name_hisp) |> 
-    summarize(enrollment=sum(na.omit(enrollment))) 
-
-pop_native_am <- statewide_only_discipline |> 
-    filter(str_detect(race, name_native_am)) |> 
-    summarize(enrollment=sum(na.omit(enrollment))) 
-pop_black <- statewide_only_discipline |> 
-    filter(str_detect(race, name_black)) |> 
-    summarize(enrollment=sum(na.omit(enrollment))) 
-pop_white <- statewide_only_discipline |> 
-    filter(str_detect(race, name_white)) |> 
-    summarize(enrollment=sum(na.omit(enrollment))) 
-pop_asian_am <- statewide_only_discipline |> 
-    filter(str_detect(race, name_asian_am)) |> 
-    summarize(enrollment=sum(na.omit(enrollment))) 
-pop_multi_racial <- statewide_only_discipline |> 
-    filter(str_detect(race, name_multi_racial)) |> 
-    summarize(enrollment=sum(na.omit(enrollment))) 
-pop_hawaiian_pi <- statewide_only_discipline |> 
-    filter(str_detect(race, name_hawaiian_pi)) |> 
-    summarize(enrollment=sum(na.omit(enrollment))) 
-
-demographics$num_enrolled <- c(pop_hisp, pop_native_am, pop_black, pop_white, pop_asian_am, pop_multi_racial, pop_hawaiian_pi)
-print(demographics)
-```
-
-Now we'll calculate the number of students disciplined (in-school, out-of-school, etc) and the number of incidents.
+So the dataframe pops shows us all the statistics we could ever want. We just have to manipulate it as necessary to show the population we're interested in. 
+Now we'll calculate the average number of students disciplined (in-school, out-of-school, etc) and divide it by the average number of incidents.
 ```{r}
 hisp_incidents <- statewide_only_discipline |> 
-    filter(str_detect(race, name_hisp)) |> 
+    filter(race == name_hisp) |> 
     filter(rowstatus=="REPORTED") |> 
-    summarize(num_incidents=sum(na.omit(incidents)), num_disc_students=sum(na.omit(students))) 
+    summarize(num_incidents=median(na.omit(incidents)), num_disc_students=sum(na.omit(students))) 
 native_am_incidents <- statewide_only_discipline |> 
     filter(str_detect(race, name_native_am)) |> 
     filter(rowstatus=="REPORTED") |> 
