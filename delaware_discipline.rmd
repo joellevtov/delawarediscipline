@@ -1,5 +1,5 @@
 ---
-title: "Quarto"
+title: "Black students are disproprotionately disciplined in Delaware"
 ---
 Get started, loading & cleaning the data.
 ```{r setup, include=FALSE}
@@ -10,44 +10,63 @@ library(janitor)
 library(magrittr) # use magrittr if you want to replicate the function of the tidyverse |> character in vscode or a similar program - this code uses the |> character a lot
 library(dplyr)
 library(ggthemes)
+library(stringr)
+library(purrr)
 
 # Remove comment from the below read_csv line as necessary.
 delaware_discipline <- read_csv("/Users/joellevtov/Library/CloudStorage/GoogleDrive-levtov@terpmail.umd.edu/My Drive/Journalism/delawarediscipline/delaware_student_discipline_raw.csv") |> 
     clean_names() |> 
     select(!geography) #the geography column reads either "All Students" or, for redacted rows, "NA" - so this will ignore the column
-delaware_discipline$sub_group <- str_replace(delaware_discipline$sub_group, "Asian", "Asian Amerian") 
+delaware_discipline$sub_group <- str_replace(delaware_discipline$race, regex("Asian", ignore_case = TRUE), "Asian American") 
+delaware_discipline$sub_group <- str_replace(delaware_discipline$sub_group, regex("Asian", ignore_case = TRUE), "Asian American") 
+delaware_discipline$category <- str_replace(delaware_discipline$category, regex("Out-of-School Suspension, No CDAP Placement", ignore_case = TRUE), "Out-of-School Suspension without CDAP Placement")
+# The raw data has two different phrases that mean the same thing - "Out-of-School Suspension, No CDAP Placement" and "Out-of-School Suspension without CDAP Placement". For clarity, I replaced the latter with the former.
 
-delaware_pop <- read_csv("/Users/joellevtov/Library/CloudStorage/GoogleDrive-levtov@terpmail.umd.edu/My Drive/Journalism/delawarediscipline/Student_Enrollment_20240209.csv") |> 
+
+delaware_pop <- read_csv("/Users/joellevtov/Downloads/Student_Enrollment_20240216.csv") |> 
     clean_names()
-delaware_pop$grade <- str_replace(delaware_pop$grade, "Twelfth", "12th Grade")
-delaware_pop$sub_group <- str_replace(delaware_pop$sub_group, "Asian", "Asian American")
-
-# Double check that everything worked as intended:
-check <- as.data.frame(delaware_discipline) |> 
-    filter(category == "Out-of-School Suspension without CDAP Placement")
-head(check)
-# If this returns 0 rows, everything is working perfectly. The raw data has two different phrases that mean the same thing - "Out-of-School Suspension, No CDAP Placement" and "Out-of-School Suspension without CDAP Placement". For clarity, I replaced the latter with the former.
+delaware_pop$grade <- str_replace(delaware_pop$grade, regex("Twelfth", ignore_case=TRUE), "12th Grade")
+delaware_pop$sub_group <- str_replace(delaware_pop$sub_group, regex("Asian", ignore_case = TRUE), "Asian American")
 ```
 
-Let's create a dataframe that addresses state-wide discipline policies.
-```{r}
-statewide_only_discipline <- delaware_discipline  |> 
-    filter(district=="State of Delaware") 
-```
-
-And let's make the racial labels easier to type.
+Let's make the racial labels easier to type.
 ```{r}
 race_categories <- as.data.frame(unique(na.omit(delaware_discipline$race))) 
 colnames(race_categories)[1] <- "race"
 race_categories <- as.data.frame(race_categories) |> 
     filter(race != "All Students") #removed the line that had "All Students" as a race
 name_hisp <- race_categories[1,1]
-name_native_am <- race_categories[2,1]
-name_black <- race_categories[3,1]
-name_white <- race_categories[4,1]
+name_white <- race_categories[2,1]
+name_native_am <- race_categories[3,1]
+name_black <- race_categories[4,1]
 name_asian_am <- race_categories[5,1]
 name_multi_racial <- race_categories[6,1]
 name_hawaiian_pi <- race_categories[7,1]
+print_var_name_and_value <- function(x) {
+  # Capture and print the variable name
+  var_name <- deparse(substitute(x))
+  
+  # Capture and print the variable value
+  var_value <- eval(substitute(x))
+  
+  # Combine into a data frame for pretty printing
+  result_df <- data.frame(
+    variable_name = var_name,
+    variable_value = as.character(var_value),
+    stringsAsFactors = FALSE  # Avoid factors for strings
+  )
+  
+  print(result_df)
+}
+
+# Run each line individually to make sure that the variables represent the correct string - this will be critical later on.
+print_var_name_and_value(name_hisp)
+print_var_name_and_value(name_white)
+print_var_name_and_value(name_native_am)
+print_var_name_and_value(name_black)
+print_var_name_and_value(name_asian_am)
+print_var_name_and_value(name_multi_racial)
+print_var_name_and_value(name_hawaiian_pi)
 ```
 
 Let's break down the <delaware_discipline> dataframe.
@@ -62,12 +81,12 @@ Let's break down the <delaware_discipline> dataframe.
 <category> displays what type of discipline was applied - in-school discipline, out-of-school discipline, expulsion, etc.
 <rowstatus> shows whether or not a row has been ommitted out of privacy concerns - if the pool of students is small enough, it would be possible to identify which students were disciplined, in theory
 <students> shows the number of STUDENTS who were disciplined with <category>
-<enrollment> shows the numer of students who fit into a certain <sub_group>
+<enrollment> shows the numer of students who fit into a certain <status>
 <pct_enrollment> shows what percent of the student body the studeents in <sub_group> make up
 <incidents> shows the number of times <status> was applied - e.g the number of times a student got in-school suspension, NOT the number of students that got in-school suspension
 <avg_duration> shows how many days students in <sub_group> were suspended for on average
 
-The delaware_discipline dataset is very helpful, but is missing one key calculation -- on average, the number of students and incidents across all 8 years. So we'll create a table to display that and other tables along the way. 
+That dataframe is helpful, but is hard to query for population counts -- taking the median of the number of Hispanic 2nd graders is hard to do because the enrollment numbers are repeated 2-5 times with each discipline <category>. Luckily, the state offers another spreadsheet with exclusively enrollment numbers. 
 race                             num_enrolled    num_disciplined    num_incidents   per_capita_disciplines length
 Hispanic/Latino                  x               x                  x               x                       x
 Native American                  x               x                  x               x                       x
@@ -83,428 +102,380 @@ Native Hawaiian/Pacific Islander x               x                  x           
 <per_capita_disciplines> is the average number of students disciplined, i.e. num_students_disciplined/enrollement
 <length> is the average length of a discipline measure in days
 
+Now we can start calculating. First, we calculate how many students of each race there are overall -- e.g. on average, how many white 10th graders there were in Delaware. Taking the median here so that we don't overcount the number of students like we'd do if we were to sum or get an average thrown off by outliers like we would get with the median. Big fluctuations in enrollment are certainly an interesting story, but not the one we are focusing on here.
 ```{r}
-# Declaring a new data frame and giving it the column names
-demographics <- data.frame( 
-    num_enrolled = numeric(),
-    num_disciplined = numeric(), 
-    num_incidents = numeric(),
-    per_capita_disciplines = numeric(),
-    length = numeric())
-# Adding empty row containing only NA values
-demographics[nrow(demographics) + 7, ] <- NA  
-# Defining the row names
-rownames(demographics) <- c(name_hisp, name_native_am, name_black, name_white, name_asian_am, name_multi_racial, name_hawaiian_pi)
-print(demographics)
-```
-
-Now we can start calculating. First, let's calculate some statistics for later calculations.
-```{r}
-# This makes a table showing the number of students of x race enrolled each year.
-# filter_race <- function(.data, race_name) {
-#   filtered_race_data <- .data |>
-#     filter(race == race_name, sub_group == race_name) |>
-#     filter(!str_detect(grade, regex("Birth to 2 Years", ignore_case = TRUE))) |> 
-#     summarize(sum = median(students))
-#   return(filtered_race_data)
-# }
-# name_hisp <- race_name
-
-# delaware_pop|> 
-#     filter(race==name_black) |> 
-#     filter(sub_group==name_black) |> 
-#     filter(is.na(school_year))
-
-# delaware_pop |> 
-#     filter(race)
-
-# pop_native_am <- pops|> 
-#     filter(race==name_native_am) |> 
-#     ignore_toddlers() |> 
-#     filter(sub_group==name_native_am) |> 
-#     summarize(sum=median(students))
-# pop_black <- pops |> 
-#     filter(race==name_black) |> 
-#     ignore_toddlers() |> 
-#     filter(sub_group==name_black) |> 
-#     summarize(sum=median(students))
-# pop_white <- pops |> 
-#     filter(race==name_white) |> 
-#     ignore_toddlers() |> 
-#     filter(sub_group==name_white) |> 
-#     summarize(sum=median(students)) 
-# pop_asian_am <- pops |> 
-#     filter(race==name_asian_am) |> 
-#     ignore_toddlers() |> 
-#     filter(sub_group==name_asian_am) |> 
-#     summarize(sum=median(students))
-# pop_multi_racial <- pops |> 
-#     filter(race==name_multi_racial) |> 
-#     ignore_toddlers() |> 
-#     filter(sub_group==name_multi_racial) |> 
-#     summarize(sum=median(students)) 
-# pop_hawaiian_pi <- pops|> 
-#     filter(race==name_hawaiian_pi) |> 
-#     ignore_toddlers() |> 
-#     filter(sub_group==name_hawaiian_pi) |> 
-#     summarize(sum=median(students)) 
-# demographics$num_enrolled <- c(pop_hisp, pop_native_am, pop_black, pop_white, pop_asian_am, pop_multi_racial, pop_hawaiian_pi)
-# view(demographics)
-
-# How many students of x race there are overall. Taking the median here so that we don't overcount the number of students, which summing would do. (Although, if we calculated the discipline numbers the same way, it shouldn't matter for the proportion.) Using the median because it won't be swayed by outliers, such as surges in enrollment. These are important stories, but not for these purposes.
-library(stringr)
-library(tidyverse)
-
-filtered_race_data <- delaware_pop |>
-    ungroup() |> 
-    group_by(race, grade, gender, district_code, sub_group)  |> 
-    summarize(students = median(na.omit(students)))
-filtered_race_data$school_year <- NA
-view(filtered_race_data)
-redacted <- filtered_race_data |> 
-    filter(is.na(students))
 # This works well, we just have to keep in mind that Delaware has redacted several rows for small schools, such as the Positive Outcome Charter School - likely for FERPA reasons.
-
+# this function calculates the average number of students of each race, gender, district and sub_group
+median_student_num <- function(.data) { 
+    filtered_race_data <- .data |> 
+        ungroup() |> 
+        group_by(race, grade, gender, district_code, sub_group) |> 
+        summarize(students = median(na.omit(students)))
+    filtered_race_data$school_year <- NA
+return(filtered_race_data)
+}
+filtered_race_data <- median_student_num(delaware_pop)
+    
 delaware_pop_copy <- delaware_pop |> 
-    full_join(filtered_race_data, join_by(grade, sub_group, students, race, district_code, school_year))
-# Perfect. Now we have all the statistics in one dataframe. If we want to know the average number of students in a certain category, e.g. Black homeless students, we set the year equal to 'NA'
+    full_join(filtered_race_data, join_by(grade, sub_group, students, race, district_code, school_year, gender))
 ```
 
-So the dataframe pops shows us all the statistics we could ever want. We just have to manipulate it as necessary to show the population we're interested in. 
-Now we'll calculate the average number of students disciplined (in-school, out-of-school, etc) and divide it by the average number of incidents.
+The process_race_data function is a one-stop shop to calculating everything we could want. One can specify the following parameters:
+- District Code (this argument is mandatory)
+- Race
+- Grade
+- Gender
+- Discipline type (i.e. in-school suspension, out-of-school suspension, expulsion)
+
+If interested in all students in a particular category, e.g. the average number of students of all races, write "all" (any capitalization) or leave the argument out.
 ```{r}
-hisp_incidents <- statewide_only_discipline |> 
-    filter(race == name_hisp) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_incidents=median(na.omit(incidents)), num_disc_students=sum(na.omit(students))) 
-native_am_incidents <- statewide_only_discipline |> 
-    filter(str_detect(race, name_native_am)) |> 
-    filter(rowstatus=="REPORTED") |> 
-hisp_incidents <- statewide_only_discipline |> 
-    filter(str_detect(race, name_hisp)) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_incidents=sum(na.omit(incidents)), num_disc_students=sum(na.omit(students))) 
-black_incidents <- statewide_only_discipline |> 
-    filter(str_detect(race, name_black)) |> 
-    filter(rowstatus=="REPORTED") |> 
-hisp_incidents <- statewide_only_discipline |> 
-    filter(str_detect(race, name_hisp)) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_incidents=sum(na.omit(incidents)), num_disc_students=sum(na.omit(students))) 
-white_incidents <- statewide_only_discipline |> 
-    filter(str_detect(race, name_white)) |> 
-    filter(rowstatus=="REPORTED") |> 
-hisp_incidents <- statewide_only_discipline |> 
-    filter(str_detect(race, name_hisp)) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_incidents=sum(na.omit(incidents)), num_disc_students=sum(na.omit(students))) 
-asian_am_incidents <- statewide_only_discipline |> 
-    filter(str_detect(race, name_asian_am)) |> 
-    filter(rowstatus=="REPORTED") |> 
-hisp_incidents <- statewide_only_discipline |> 
-    filter(str_detect(race, name_hisp)) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_incidents=sum(na.omit(incidents)), num_disc_students=sum(na.omit(students))) 
-multi_racial_incidents <- statewide_only_discipline |> 
-    filter(str_detect(race,name_multi_racial)) |> 
-    filter(rowstatus=="REPORTED") |> 
-hisp_incidents <- statewide_only_discipline |> 
-    filter(str_detect(race, name_hisp)) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_incidents=sum(na.omit(incidents)), num_disc_students=sum(na.omit(students))) 
-hawaiian_pi_incidents <- statewide_only_discipline |> 
-    filter(str_detect(race, name_hawaiian_pi)) |> 
-    filter(rowstatus=="REPORTED") |> 
-hisp_incidents <- statewide_only_discipline |> 
-    filter(str_detect(race, name_hisp)) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_incidents=sum(na.omit(incidents)), num_disc_students=sum(na.omit(students))) 
-demographics$num_of_incidents <- c(hisp_incidents, native_am_incidents, black_incidents, white_incidents, asian_am_incidents, multi_racial_incidents, hawaiian_pi_incidents)
-print(demographics)
+process_race_data <- function(pop_df, discipline_df, dis_code, race_name, grade_query, gender_query, disc_type) {
+    library(stringr)
+    library(tidyverse)
+
+    filter_incidents <- function(.data, dis_code, race_name = NULL, grade_query = NULL, gender_query = NULL, disc_type = NULL) {
+    # Start with filtering district_code as it's applied regardless
+    filtered <- .data |> 
+        filter(district_code == dis_code) |> 
+        filter(!category %in% c("Out-of-School Suspension with CDAP Placement", "Out-of-School Suspension without CDAP Placement")) # since delaware does not reliably include the rows about CDAP placement vs. without CDAP placement, I'm going to filter them out
+    
+    # Apply filter for race_name. Default to "All Students" if "all" or NULL
+    if (is.null(race_name) || tolower(race_name) == "all") {
+        filtered <- filtered |>  filter(race == "All Students")
+    } else {
+        filtered <- filtered |> filter(race == race_name) |> filter(sub_group == race_name)
+    }
+    
+    # Apply filter for grade_query. Use str_detect for partial matches. Default to "All Students" if "all" or NULL
+    if (is.null(grade_query) || tolower(grade_query) == "all") {
+        filtered <- filtered |>  filter(grade == "All Students")
+    } else {
+        filtered <- filtered |>  filter(str_detect(grade, regex(grade_query, ignore_case = TRUE)))
+    }
+    
+    # Apply filter for gender_query. Default to "All Students" if "all" or NULL
+    if (is.null(gender_query) || tolower(gender_query) == "all") {
+        filtered <- filtered |>  filter(gender == "All Students")
+    } else {
+        filtered <- filtered |>  filter(gender == gender_query)
+    }
+
+    # Apply filter for disc_type if provided and not "all". No "All Students" default for discipline type as it doesn't apply
+    if (!is.null(disc_type) && tolower(disc_type) != "all") {
+        filtered <- filtered |>  filter(category == disc_type)
+    }
+
+    filtered <- filtered |> 
+    summarize(num_incidents=median(na.omit(incidents)), num_disc_students=median(na.omit(students)))
+
+    return(filtered)
+    print(filtered)
+    }
+
+# this function finds the average number of students of a certain race
+find_num_race <- function(.data, dis_code, race_name = NULL, grade_query = NULL, gender_query = NULL, disc_type = NULL) { 
+        filtered <- .data |> # .data takes the population dataframe
+            filter(district_code== dis_code)
+    if (is.null(race_name) || tolower(race_name) == "all") {
+        filtered <- filtered |> filter(race == "All Students")
+    } else {
+        filtered <- filtered |> filter(race == race_name) |> filter(sub_group == race_name)
+    }
+        if (is.null(grade_query) || tolower(grade_query) == "all") {
+        filtered <- filtered |>  filter(grade == "All Students")
+    } else {
+        filtered <- filtered |>  filter(str_detect(grade, regex(grade_query, ignore_case = TRUE)))
+    }
+        if (is.null(gender_query) || tolower(gender_query) == "all") {
+        filtered <- filtered |>  filter(gender == "All Students")
+    } else {
+        filtered <- filtered |>  filter(gender == gender_query)
+    }
+
+filtered <- filtered |> 
+    filter(is.na(school_year)) # |> 
+                # select(students)
+        return(filtered)
+    }
+
+
+    num_race <- find_num_race(pop_df, dis_code, race_name, grade_query, gender_query)
+    # this function calculates the average number of incidents per race
+    incidents_per_race <- filter_incidents(discipline_df, dis_code, race_name, grade_query, gender_query, disc_type)
+    # this joins the dataframes into one
+    incidents_per_race$num_students <- num_race$students
+    # this changes the order of the columns
+    incidents_per_race <- relocate(incidents_per_race, num_students, .before = 1)
+    # this calculates the per capita rate
+    incidents_per_race <- incidents_per_race |> 
+        mutate(per_capita = as.numeric(num_incidents) / as.numeric(num_students))
+}
+
+# The above functions make our life a lot easier - now we just have to plug in the dataframes, the district code and the race.
+hisp_incidents <- process_race_data(delaware_pop_copy, delaware_discipline, 0, name_hisp, "all", "all", "all") # could also leave out the "all" arguments all together and provide no arguments for grade_query, gender_query, disc_type as they are automatically set to 'null'
+print(hisp_incidents)
+native_am_incidents <- process_race_data(delaware_pop_copy, delaware_discipline, 0, name_native_am, "all", "all", "all") 
+print(native_am_incidents)
+black_incidents <- process_race_data(delaware_pop_copy, delaware_discipline, 0, name_black, "all", "all", "all") 
+print(black_incidents)
+white_incidents <- process_race_data(delaware_pop_copy, delaware_discipline, 0, name_white, "all", "all", "all") 
+print(white_incidents)
+asian_am_incidents <- process_race_data(delaware_pop_copy, delaware_discipline, 0, name_asian_am, "all", "all", "all") 
+print(asian_am_incidents)
+multi_racial_incidents <- process_race_data(delaware_pop_copy, delaware_discipline, 0, name_multi_racial, "all", "all", "all") 
+print(multi_racial_incidents)
+hawaiian_pi_incidents <- process_race_data(delaware_pop_copy, delaware_discipline, 0, name_hawaiian_pi, "all", "all", "all") 
+print(hawaiian_pi_incidents)
 ```
 
-Now, the mean number of incidents in each racial group. As you can see, white students had the most incidents on average, followed closely by Hispanic students and distantly by multi-racial students (though that's not exactly a fair calculation, there are only around 7000 multi-racial students in the state according to the data, so every incident, not accounting for the proportion, is going to matter that much more).
-```{r}
-hisp <- statewide_only_discipline |> 
-    filter(str_detect(race, name_hisp)) |> 
-    filter(rowstatus=="REPORTED") 
-hisp_mean_incidents <- as.numeric(hisp$incidents)
-hisp_mean_incidents <- hisp_mean_incidents |> 
-    mean(hisp_mean_incidents, trim=0, na.rm=TRUE)
-hisp_mean_incidents 
-# for Native students
-native_am <- statewide_only_discipline |> 
-    filter(str_detect(race, name_native_am)) |> 
-    filter(rowstatus=="REPORTED") 
-native_am_mean_incidents <- as.numeric(native_am$incidents)
-native_am_mean_incidents <- native_am_mean_incidents |> 
-    mean(native_am_mean_incidents, trim=0, na.rm=TRUE)
-# For Black students
-black <- statewide_only_discipline |> 
-    filter(str_detect(race, name_black)) |> 
-    filter(rowstatus=="REPORTED") 
-black_mean_incidents <- as.numeric(native_am$incidents)
-black_mean_incidents <- black_mean_incidents |> 
-    mean(black_mean_incidents, trim=0, na.rm=TRUE)
-# For white students
-white <- statewide_only_discipline |> 
-    filter(str_detect(race, name_white)) |> 
-    filter(rowstatus=="REPORTED")  
-white_mean_incidents <- as.numeric(white$incidents)
-white_mean_incidents <- white_mean_incidents |> 
-    mean(white_mean_incidents, trim=0, na.rm=TRUE)
-demographics[4, 4] = round(white_mean_incidents, digits=1)
-# For Asian students
-asian_am <- statewide_only_discipline |> 
-    filter(str_detect(race, name_asian_am)) |> 
-    filter(rowstatus=="REPORTED") 
-asian_am_mean_incidents <- as.numeric(asian_am$incidents)
-asian_am_mean_incidents <- asian_am_mean_incidents |> 
-    mean(asian_am_mean_incidents, trim=0, na.rm=TRUE)
-demographics[5, 4] = round(asian_am_mean_incidents, digits=1)
-# For multi-racial students
-multi_racial <- statewide_only_discipline |> 
-    filter(str_detect(race, name_multi_racial)) |> 
-    filter(rowstatus=="REPORTED") 
-multi_racial_mean_incidents <- as.numeric(multi_racial$incidents)
-multi_racial_mean_incidents <- multi_racial_mean_incidents |> 
-    mean(multi_racial_mean_incidents, trim=0, na.rm=TRUE)
-# For hawaiian-pacific islander students
-hawaiian_pi <- statewide_only_discipline |> 
-    filter(str_detect(race, name_hawaiian_pi)) |> 
-    filter(rowstatus=="REPORTED") 
-hawaiian_pi_mean_incidents <- as.numeric(hawaiian_pi$incidents)
-hawaiian_pi_mean_incidents <- hawaiian_pi_mean_incidents |> 
-    mean(hawaiian_pi_mean_incidents, trim=0, na.rm=TRUE)
-demographics$avg_incidents <- c(hisp_mean_incidents, native_am_mean_incidents, black_mean_incidents, white_mean_incidents, asian_am_mean_incidents, multi_racial_mean_incidents, hawaiian_pi_mean_incidents)
-demographics <- demographics |> 
-    arrange(desc(avg_incidents))
-print(demographics)
+``` {r}
+
+
+ incidents_per_race <- filter_incidents(discipline_df, dis_code, race_name, grade_query, gender_query, disc_type)
+    # this joins the dataframes into one
+    incidents_per_race$num_students <- num_race$students
+    # this changes the order of the columns
+    incidents_per_race <- relocate(incidents_per_race, num_students, .before = 1)
+    # this calculates the per capita rate
+    incidents_per_race <- incidents_per_race |> 
+        mutate(per_capita = as.numeric(num_incidents) / as.numeric(num_race))
+
+
+number_of_incidents_hisp <- filter_incidents(delaware_discipline, 0, name_hisp)
+print(number_of_incidents_hisp)
 ```
 
-That average we calculated is helpful, but doesn't take into account what portion of the student body students make up. So we'll calculate the per capita average - taking into account the proportion of students.
-```{r}
-demographics <- demographics |> 
-    mutate(per_capita=(per_capita = as.numeric(num_of_incidents)/as.numeric(num_enrolled))*100)
-demographics <- demographics |> 
-    arrange(desc(per_capita))
-print(demographics)
-```
+
 
 Let's make a graph.
 ```{r}
-demographics_graph <- demographics |> 
-    arrange(per_capita)
+overall <- list()
+overall$race <- c(name_hisp, name_native_am, name_black, name_white, name_asian_am, name_multi_racial, name_hawaiian_pi) 
 
-demographics_graph |> 
+overall <- hisp_incidents |> 
+    full_join(native_am_incidents) |> 
+    full_join(black_incidents) |> 
+    full_join(white_incidents) |> 
+    full_join(asian_am_incidents) |> 
+    full_join(multi_racial_incidents) |> 
+    full_join(hawaiian_pi_incidents) |> 
+    mutate(
+        race=c(name_hisp, name_native_am, name_black, name_white, name_asian_am, name_multi_racial, name_hawaiian_pi)
+    )|> 
+    rename(num_enrolled=num_students) |> 
+    rename(per_capita_disciplines=per_capita) |> 
+    relocate(race, .before = num_enrolled)
+print(overall)
+
+overall_graph <- overall |> 
+  mutate(race_ordered = fct_reorder(race, per_capita_disciplines)) # Assuming 'race' is the column you want on x-axis
+
+overall_graph <- overall_graph |> 
     ggplot() +
-    geom_col(aes(x=reorder(race, per_capita), y=per_capita), fill="darkblue") +
+    geom_col(aes(x= race_ordered, y=per_capita_disciplines), fill="darkblue") +
     labs(
-        title="Black and Native American students are far more likely to face discipline in Delaware.",
+        title="Black and multi-racial students are far more likely to face discipline in Delaware.",
         x= "race",
         y="avg"
     ) +
-    theme_economist()
+    theme_economist() +
+    theme(
+    axis.text.x = element_text(angle = 45, hjust=1, vjust=0.9, size=15),  # Adjust text angle, justification, and size
+    plot.margin = margin(t = 10, r = 10, b = 40, l = 10, unit = "pt")  # Expand bottom margin
+    )
+print(overall_graph)
 ```
 
-What's clear from this data is that Black and Native American students are far more likely to be disciplined -- almost twice as likely as the next group, multi-racial students. It bears noting, though, that there are relatively few multi-racial students - though there are even less Asian/Pacific Islander students in Delaware. But do they get more serious discipline - e.g. out-of-school suspension vs. in-school discipline? Let's dive deeper into the data. First, let's create some variables - there are six types of discipline noted in the data - in-school suspension, out-of-school suspension (with and without CDAP -- "Consortium Discipline Alternative Program" -- placement, used when the student has been punished through school programs without improving and they "routinely and seriously disrupt the classroom"). 
+What's clear from this data is that Black and multi-racial students are far more likely to be disciplined . But do they get more serious discipline - e.g. out-of-school suspension vs. in-school discipline? Let's dive deeper into the data. First, let's create some variables - there are six types of discipline noted in the data - in-school suspension, out-of-school suspension (with and without CDAP -- "Consortium Discipline Alternative Program" -- placement, used when the student has been punished through school programs without improving and they "routinely and seriously disrupt the classroom"). 
 ```{r}
 name_in_school_sus <- "In-School Suspension" 
-name_oos_no_cdap <- "Out-of-School Suspension, No CDAP Placement"    
+name_oos <- "Out-of-School Suspension"
+name_oos_wo_cdap <- "Out-of-School Suspension without CDAP Placement"    
 name_oos_cdap <- "Out-of-School Suspension with CDAP Placement"   
 name_expulsion <-"Expulsion (Permanent Removal from School)"      
 ```
 
-Thanks to our data cleanup at the beginning, everything works. Here's a template for later, for making tables.
-race                             method     num_enrolled   num_of_incidents     per_capita
-Hispanic/Latino                  x          x              x                    x      
-Native American                  x          x              x                    x 
-African American                 x          x              x                    x 
-White                            x          x              x                    x 
-Asian American                   x          x              x                    x  
-Multi-Racial                     x          x              x                    x  
-Native Hawaiian/Pacific Islander x          x              x                    x  
-```{r}
-demographics_detailed <- data.frame (
-    race = character(),
-    method = character(),
-    num_enrolled = numeric(),
-    num_of_incidents = numeric()
-    )
-demographics_detailed[nrow(demographics_detailed) + 7, ] <- NA  
-demographics_detailed$race <- c(name_hisp, name_native_am, name_black, name_white, name_asian_am, name_multi_racial, name_hawaiian_pi)
-demographics_detailed$num_enrolled <- c(pop_hisp, pop_native_am, pop_black, pop_white, pop_asian_am, pop_multi_racial, pop_hawaiian_pi)
-
-print(demographics_detailed)
-```
-
 First, let's tackle in-school suspension. 
 ```{r}
-# Creating the appropriate emty dataframe
-in_school_suspensions <- demographics_detailed 
-in_school_suspensions$method[1:7] <- name_in_school_sus
-# Calculating the number of students of a certain race who were suspended in school
-hisp_in_school_sus <- statewide_only_discipline |> 
-    filter(race==name_hisp) |> 
-    filter(category==name_in_school_sus) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_disciplined=sum(na.omit(students))) 
-in_school_suspensions[1,4] <- hisp_in_school_sus
-native_am_in_school_sus <- statewide_only_discipline |> 
-    filter(race==name_native_am) |> 
-    filter(category==name_in_school_sus) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_disciplined=sum(na.omit(students))) 
-in_school_suspensions[2,4] <- native_am_in_school_sus
-black_in_school_sus <- statewide_only_discipline |> 
-    filter(race==name_black) |> 
-    filter(category==name_in_school_sus) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_disciplined=sum(na.omit(students))) 
-in_school_suspensions[3,4] <- black_in_school_sus
-white_in_school_sus <- statewide_only_discipline |> 
-    filter(race==name_white) |> 
-    filter(category==name_in_school_sus) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_disciplined=sum(na.omit(students))) 
-in_school_suspensions[4,4] <- white_in_school_sus
-asian_am_in_school_sus <- statewide_only_discipline |> 
-    filter(race==name_asian_am) |> 
-    filter(category==name_in_school_sus) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_disciplined=sum(na.omit(students))) 
-in_school_suspensions[5,4] <- asian_am_in_school_sus
-multi_racial_in_school_sus <- statewide_only_discipline |> 
-    filter(race==name_multi_racial) |> 
-    filter(category==name_in_school_sus) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_disciplined=sum(na.omit(students))) 
-in_school_suspensions[6,4] <- multi_racial_in_school_sus
-hawaiian_pi_in_school_sus <- statewide_only_discipline |> 
-    filter(race==name_hawaiian_pi) |> 
-    filter(category==name_in_school_sus) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_disciplined=sum(na.omit(students))) 
-in_school_suspensions[7,4] <- hawaiian_pi_in_school_sus
-in_school_suspensions$num_enrolled <- c(pop_hisp, pop_native_am, pop_black, pop_white, pop_asian_am, pop_multi_racial, pop_hawaiian_pi)
-in_school_suspensions <- in_school_suspensions |> 
-    mutate(per_capita = (num_of_incidents/as.numeric(num_enrolled))*100)
+# create a new function that functions similar to the one above
+process_detailed_race_data <- function(pop_df, discipline_df, district_code, race_name, disc_type) {
+    library(stringr)
+    library(tidyverse)
+
+
+filter_incidents <- function(.data, dis_code, race_name, disc_type) { 
+        filtered1 <- .data |> 
+            filter(district_code==dis_code) |> 
+            filter(category==disc_type) |> 
+            filter(race==race_name) |> 
+            filter(sub_group==race_name) |> 
+            summarize(num_incidents=median(na.omit(incidents)), num_disc_students=median(na.omit(students)))
+    return(filtered1)
+    }
+
+# this function finds the average number of students of a certain race
+    find_num_race <- function(.data, x, race_name) { 
+        filtered <- .data |> # .data takes the population dataframe
+            filter(district_code==x) |> 
+            filter(race==race_name) |> 
+            filter(sub_group==race_name) |> 
+            filter(is.na(school_year)) |> 
+            select(students)
+    return(filtered)
+    }
+
+    num_race <- find_num_race(pop_df, district_code, race_name)
+    # this function calculates the average number of incidents per race
+    incidents_per_race <- filter_incidents(discipline_df, district_code, race_name, disc_type)
+    # this joins the dataframes into one
+    incidents_per_race$num_students <- num_race$students
+    # this changes the order of the columns
+    incidents_per_race <- relocate(incidents_per_race, num_students, .before = 1)
+    # this calculates the per capita rate
+    incidents_per_race <- incidents_per_race |> 
+        mutate(per_capita = as.numeric(num_incidents) / as.numeric(num_race))
+
+return(incidents_per_race)
+}
+
+hisp_in_school_sus <- process_detailed_race_data(delaware_pop_copy, delaware_discipline, 0, name_hisp, name_in_school_sus)
+print(hisp_in_school_sus)
+native_am_in_school_sus <- process_detailed_race_data(delaware_pop_copy, delaware_discipline, 0, name_native_am, name_in_school_sus)
+print(native_am_in_school_sus)
+black_in_school_sus <- process_detailed_race_data(delaware_pop_copy, delaware_discipline, 0, name_black, name_in_school_sus)
+print(black_in_school_sus)
+white_in_school_sus <- process_detailed_race_data(delaware_pop_copy, delaware_discipline, 0, name_white, name_in_school_sus)
+print(white_in_school_sus)
+asian_am_in_school_sus <- process_detailed_race_data(delaware_pop_copy, delaware_discipline, 0, name_asian_am, name_in_school_sus)
+print(asian_am_in_school_sus)
+multi_racial_in_school_sus <- process_detailed_race_data(delaware_pop_copy, delaware_discipline, 0, name_multi_racial, name_in_school_sus)
+print(multi_racial_in_school_sus)
+hawaiian_pi_in_school_sus <- process_detailed_race_data(delaware_pop_copy, delaware_discipline, 0, name_hawaiian_pi, name_in_school_sus)
+print(hawaiian_pi_in_school_sus)
+
+in_school_suspensions <- hisp_in_school_sus |> 
+    full_join(native_am_in_school_sus) |> 
+    full_join(black_in_school_sus) |> 
+    full_join(white_in_school_sus) |> 
+    full_join(asian_am_in_school_sus) |> 
+    full_join(multi_racial_in_school_sus) |> 
+    full_join(hawaiian_pi_in_school_sus)
+in_school_suspensions$race <- c(name_hisp, name_native_am, name_black, name_white, name_asian_am, name_multi_racial, name_hawaiian_pi) 
+in_school_suspensions <- in_school_suspensions |>  relocate(race, .before=num_students)
 print(in_school_suspensions)
+
+
 in_school_suspensions_graph <- in_school_suspensions |> 
-    arrange(desc(per_capita))
-print(in_school_suspensions_graph)
-in_school_suspensions_graph |> 
+  mutate(race_ordered = fct_reorder(race, per_capita)) # Assuming 'race' is the column you want on x-axis
+
+in_school_suspensions_graph <- in_school_suspensions_graph |> 
     ggplot() +
-    geom_col(aes(x=reorder(race, per_capita), y=per_capita), fill="darkblue") +
+    geom_col(aes(x= race_ordered, y=per_capita), fill="darkblue") +
     labs(
-        title="Black students most likely to face in-school discipline in Delaware.",
+        title="Black and multi-racial students are far more likely to face in-school discipline in Delaware.",
         x= "race",
         y="avg"
     ) +
-    theme_economist()
+    theme_economist() +
+    theme(
+    axis.text.x = element_text(angle = 45, hjust=1, vjust=0.9, size=15),  # Adjust text angle, justification, and size
+    plot.margin = margin(t = 10, r = 10, b = 40, l = 10, unit = "pt")  # Expand bottom margin
+    )
+print(in_school_suspensions_graph)
 ```
 
 Very interesting. Now, let's see about out-of-school suspensions with CDAP.
 ```{r}
-oos_cdap <- demographics_detailed 
-oos_cdap$method <- name_oos_cdap
-hisp_oos_cdap <- statewide_only_discipline |> 
-    filter(race==name_hisp) |> 
-    filter(category==name_oos_cdap) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_disciplined=sum(na.omit(incidents))) 
-native_am_oos_cdap <- statewide_only_discipline |> 
-    filter(race==name_native_am) |> 
-    filter(category==name_oos_cdap) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_disciplined=sum(na.omit(incidents))) 
-black_oos_cdap <- statewide_only_discipline |> 
-    filter(race==name_black) |> 
-    filter(category==name_oos_cdap) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_disciplined=sum(na.omit(incidents))) 
-white_oos_cdap <- statewide_only_discipline |> 
-    filter(race==name_white) |> 
-    filter(category==name_oos_cdap) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_disciplined=sum(na.omit(incidents))) 
-asian_am_oos_cdap <- statewide_only_discipline |> 
-    filter(race==name_asian_am) |> 
-    filter(category==name_oos_cdap) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_disciplined=sum(na.omit(incidents))) 
-multi_racial_oos_cdap <- statewide_only_discipline |> 
-    filter(race==name_multi_racial) |> 
-    filter(category==name_oos_cdap) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_disciplined=sum(na.omit(incidents))) 
-hawaiian_pi_oos_cdap <-statewide_only_discipline |> 
-    filter(race==name_hawaiian_pi) |> 
-    filter(category==name_oos_cdap) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(num_disciplined=sum(na.omit(incidents))) 
-oos_cdap$num_of_incidents <- c(hisp_oos_cdap, native_am_oos_cdap, black_oos_cdap, white_oos_cdap, asian_am_oos_cdap, multi_racial_oos_cdap, hawaiian_pi_oos_cdap)
-oos_cdap <- oos_cdap |> 
-    mutate(per_capita = (as.numeric(num_of_incidents)/as.numeric(num_enrolled))*100)
-oos_cdap_graph <- oos_cdap
-oos_cdap_graph <- oos_cdap_graph |> 
-    arrange(desc(per_capita))
-oos_cdap_graph |> 
+hisp_oos_cdap <- process_detailed_race_data(delaware_pop_copy, delaware_discipline, 0, name_hisp, name_oos_cdap)
+print(hisp_oos_cdap)
+native_am_oos_cdap <- process_detailed_race_data(delaware_pop_copy, delaware_discipline, 0, name_native_am, name_oos_cdap)
+print(native_am_oos_cdap)
+black_oos_cdap <- process_detailed_race_data(delaware_pop_copy, delaware_discipline, 0, name_black, name_oos_cdap)
+print(black_oos_cdap)
+white_oos_cdap <- process_detailed_race_data(delaware_pop_copy, delaware_discipline, 0, name_white, name_oos_cdap)
+print(white_oos_cdap)
+asian_am_oos_cdap <- process_detailed_race_data(delaware_pop_copy, delaware_discipline, 0, name_asian_am, name_oos_cdap) # this returns na, as there are no rows which document out-of-school suspensions - with or without CDAP for Asian American students. Presumably, that means there were no out-of-school suspensions for all 6,111 Asian students on average. 
+print(asian_am_incidents)
+multi_racial_oos_cdap <- process_detailed_race_data(delaware_pop_copy, delaware_discipline, 0, name_multi_racial, name_oos_cdap)
+hawaiian_pi_oos_cdap <- process_detailed_race_data(delaware_pop_copy, delaware_discipline, 0, name_hawaiian_pi, name_oos_cdap)
+
+out_of_school_cdap_suspensions <- hisp_oos_cdap |> 
+    full_join(native_am_oos_cdap) |> 
+    full_join(black_oos_cdap) |> 
+    full_join(white_oos_cdap) |> 
+    full_join(asian_am_oos_cdap) |> 
+    full_join(multi_racial_oos_cdap) |> 
+    full_join(hawaiian_pi_oos_cdap)
+out_of_school_cdap_suspensions$race <- c(name_hisp, name_native_am, name_black, name_white, name_asian_am, name_multi_racial, name_hawaiian_pi) 
+out_of_school_cdap_suspensions <- out_of_school_cdap_suspensions |>  relocate(race, .before=num_students)
+print(out_of_school_cdap_suspensions)
+
+# this will transform the row with only 'NA' values, asian_am, to 0 so r can sort it without throwing an error.
+out_of_school_cdap_suspensions_graph <- out_of_school_cdap_suspensions |> 
+  mutate(
+      num_incidents = if_else(is.na(num_incidents), 0, num_incidents),
+      num_disc_students = if_else(is.na(num_disc_students), 0, num_disc_students),
+      per_capita = if_else(is.na(per_capita), 0, per_capita)
+    )
+  out_of_school_cdap_suspensions_graph <- out_of_school_cdap_suspensions_graph %>%
+    mutate(race_ordered = fct_reorder(race, per_capita))
+
+
+out_of_school_cdap_suspensions_graph <- out_of_school_cdap_suspensions_graph |> 
     ggplot() +
-    geom_col(aes(x=reorder(race, per_capita), y=per_capita), fill="darkblue") +
+    geom_col(aes(x= race_ordered, y=per_capita), fill="darkblue") +
     labs(
-        title="Black students far more likely to face out-of-school discipline with CDAP in Delaware.",
+        title="Native American and Native Hawaiian students are most likely to face out-of-school discipline without CDAP in Delaware.",
         x= "race",
         y="avg"
     ) +
-    theme_economist()
+    theme_economist() +
+    theme(
+    axis.text.x = element_text(angle = 45, hjust=1, vjust=0.9, size=15),  # Adjust text angle, justification, and size
+    plot.margin = margin(t = 10, r = 10, b = 40, l = 10, unit = "pt")  # Expand bottom margin
+    )
+print(out_of_school_cdap_suspensions_graph)
 ```
 Let's see about out-of-school suspensions without CDAP.
 ```{r}
-oos_no_cdap <- demographics_detailed
-oos_no_cdap$method <- name_oos_no_cdap
-hisp_oos_no_cdap <- statewide_only_discipline |> 
-    filter(race==name_hisp) |> 
-    filter(category==name_oos_no_cdap) |> 
-    filter(rowstatus=="REPORTED") |> 
-    summarize(count=n())
-native_am_oos_no_cdap <- statewide_only_discipline |> 
+hisp_oos_wo_cdap <- process_detailed_race_data(delaware_pop_copy, delaware_discipline, 0, name_hisp, name_oos_wo_cdap)
+native_am_oos_wo_cdap <- statewide_only_discipline |> 
     filter(race==name_native_am) |> 
-    filter(category==name_oos_no_cdap) |> 
+    filter(category==name_oos_wo_cdap) |> 
     filter(rowstatus=="REPORTED") |> 
     summarize(count=n())
-black_oos_no_cdap <- statewide_only_discipline |> 
+black_oos_wo_cdap <- statewide_only_discipline |> 
     filter(race==name_black) |> 
-    filter(category==name_oos_no_cdap) |> 
+    filter(category==name_oos_wo_cdap) |> 
     filter(rowstatus=="REPORTED") |> 
     summarize(count=n())
-white_oos_no_cdap <- statewide_only_discipline |> 
+white_oos_wo_cdap <- statewide_only_discipline |> 
     filter(race==name_white) |> 
-    filter(category==name_oos_no_cdap) |> 
+    filter(category==name_oos_wo_cdap) |> 
     filter(rowstatus=="REPORTED") |> 
     summarize(count=n())
-asian_am_oos_no_cdap <- statewide_only_discipline |> 
+asian_am_oos_wo_cdap <- statewide_only_discipline |> 
     filter(race==name_asian_am) |> 
-    filter(category==name_oos_no_cdap) |> 
+    filter(category==name_oos_wo_cdap) |> 
     filter(rowstatus=="REPORTED") |> 
     summarize(count=n())
-multi_racial_oos_no_cdap <- statewide_only_discipline |> 
+multi_racial_oos_wo_cdap <- statewide_only_discipline |> 
     filter(race==name_multi_racial) |> 
-    filter(category==name_oos_no_cdap) |> 
+    filter(category==name_oos_wo_cdap) |> 
     filter(rowstatus=="REPORTED") |> 
     summarize(count=n())
-hawaiian_pi_oos_no_cdap <-statewide_only_discipline |> 
+hawaiian_pi_oos_wo_cdap <-statewide_only_discipline |> 
     filter(race==name_hawaiian_pi) |> 
-    filter(category==name_oos_no_cdap) |> 
+    filter(category==name_oos_wo_cdap) |> 
     filter(rowstatus=="REPORTED") |> 
     summarize(count=n())
-oos_no_cdap$num_of_incidents <- c(hisp_oos_no_cdap, native_am_oos_no_cdap, black_oos_no_cdap, white_oos_no_cdap, asian_am_oos_no_cdap, multi_racial_oos_no_cdap, hawaiian_pi_oos_no_cdap)
-oos_no_cdap <- oos_no_cdap |> 
+oos_wo_cdap$num_of_incidents <- c(hisp_oos_wo_cdap, native_am_oos_wo_cdap, black_oos_wo_cdap, white_oos_wo_cdap, asian_am_oos_wo_cdap, multi_racial_oos_wo_cdap, hawaiian_pi_oos_wo_cdap)
+oos_wo_cdap <- oos_wo_cdap |> 
     mutate(per_capita = (as.numeric(num_of_incidents)/as.numeric(num_enrolled))*100)
-oos_no_cdap_graph <- oos_no_cdap
-oos_no_cdap_graph <- oos_no_cdap_graph |> 
+oos_wo_cdap_graph <- oos_wo_cdap
+oos_wo_cdap_graph <- oos_wo_cdap_graph |> 
     arrange(desc(per_capita))
-oos_no_cdap_graph |> 
+oos_wo_cdap_graph |> 
     ggplot() +
     geom_col(aes(x=reorder(race, per_capita), y=per_capita), fill="darkblue") +
     labs(
